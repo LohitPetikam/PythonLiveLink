@@ -30,8 +30,10 @@ def exec_user_code(source, envdir):
 def eval_expression(expr, envdir):
 	ss = io.StringIO("")
 
+	ret = None
 	try:
 		ret = eval(expr, envdir)
+		ss.write(repr(ret))
 	except Exception:
 		ss.seek(0)
 		ss.write("Exception in user code:\n")
@@ -40,7 +42,13 @@ def eval_expression(expr, envdir):
 		ss.write("-"*60 + "\n")
 
 	ss.seek(0)
-	return ss.read()
+	out = ss.read()
+	print(out)
+
+	return ret
+
+def data_store(name, data, envdir):
+	envdir[name] = data
 
 class LiveLink(object):
 	"""Interface for clients to communicate with server"""
@@ -55,6 +63,16 @@ class LiveLink(object):
 
 	def execute(self, code):
 		msg = {'cmd':'exec', 'code':code}
+		self.conn.send(msg)
+		print(self.conn.recv())
+
+	def evaluate(self, expr):
+		msg = {'cmd':'eval', 'expr':expr}
+		self.conn.send(msg)
+		print(self.conn.recv())
+
+	def store_data(self, name, data):
+		msg = {'cmd':'store', 'name':name, 'data':data}
 		self.conn.send(msg)
 		print(self.conn.recv())
 
@@ -101,7 +119,7 @@ def thread_function(name, exit_event, envdir):
 	logging.info('connection accepted from %s', listener.last_accepted)
 
 	protocol = None
-	while not exit_event.wait(1):
+	while not exit_event.is_set():
 		msg = conn.recv()
 		msg_type = type(msg)
 		if msg_type == type(''):
@@ -135,6 +153,17 @@ def thread_function(name, exit_event, envdir):
 
 				ret = eval_expression(msg['expr'], envdir)
 				send_protocol(conn, ret, protocol)
+				continue
+			elif cmd == 'store':
+				if not 'name' in msg:
+					send_protocol(conn, 'no var name given', protocol)
+					continue
+				if not 'data' in msg:
+					send_protocol(conn, 'no var data given', protocol)
+					continue
+
+				data_store(msg['name'], msg['data'], envdir)
+				send_protocol(conn, repr(envdir[msg['name']]), protocol)
 				continue
 
 		logging.info('received: %s', repr(type(msg)))
