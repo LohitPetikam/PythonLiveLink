@@ -11,39 +11,40 @@ import io
 envdir = {}
 
 def exec_user_code(source, envdir):
-	ss = io.StringIO("Successfully executed")
 
+	out = ""
 	try:
 		exec(source, envdir)
 	except Exception:
+		ss = io.StringIO("")
 		ss.seek(0)
 		ss.write("Exception in user code:\n")
 		ss.write("-"*60 + "\n")
 		traceback.print_exc(file=ss)
 		ss.write("-"*60 + "\n")
 
-	ss.seek(0)
-	out = ss.read()
-	print(out)
+		ss.seek(0)
+		out = ss.read()
+		print(out)
+
 	return out
 
 def eval_expression(expr, envdir):
-	ss = io.StringIO("")
 
 	ret = None
 	try:
 		ret = eval(expr, envdir)
-		ss.write(repr(ret))
+		# ss.write(repr(ret))
 	except Exception:
-		ss.seek(0)
+		ss = io.StringIO("")
 		ss.write("Exception in user code:\n")
 		ss.write("-"*60 + "\n")
 		traceback.print_exc(file=ss)
 		ss.write("-"*60 + "\n")
 
-	ss.seek(0)
-	out = ss.read()
-	print(out)
+		ss.seek(0)
+		out = ss.read()
+		print(out)
 
 	return ret
 
@@ -69,7 +70,9 @@ class LiveLink(object):
 	def evaluate(self, expr):
 		msg = {'cmd':'eval', 'expr':expr}
 		self.conn.send(msg)
-		print(self.conn.recv())
+		ret = self.conn.recv()
+		# print(ret)
+		return ret
 
 	def store_data(self, name, data):
 		msg = {'cmd':'store', 'name':name, 'data':data}
@@ -111,67 +114,69 @@ def send_protocol(conn, msg, protocol=None):
 
 def thread_function(name, exit_event, envdir):
 	logging.info("Thread %s: starting", name)
-	address = ('localhost', 6000)     # family is deduced to be 'AF_INET'
-	listener = Listener(address, authkey=b'livelink password')
-	logging.info('hosting on %s', address)
-	logging.info('waiting for connection...')
-	conn = listener.accept()
-	logging.info('connection accepted from %s', listener.last_accepted)
-
-	protocol = None
+	
 	while not exit_event.is_set():
-		msg = conn.recv()
-		msg_type = type(msg)
-		if msg_type == type(''):
-			if msg == 'protocol2':
-				logging.info('setting protocol = 2')
-				protocol = 2
-				send_protocol(conn, 'ok switching to protocol 2', protocol)
-				continue
-			elif msg == 'close':
-				send_protocol(conn, 'goodbye', protocol)
-				conn.close()
-				break
-		elif msg_type == type({}):
-			if not 'cmd' in msg:
-				send_protocol(conn, 'invalid cmd', protocol)
-				continue
+		address = ('localhost', 6000)     # family is deduced to be 'AF_INET'
+		listener = Listener(address, authkey=b'livelink password')
+		logging.info('hosting on %s', address)
+		logging.info('waiting for connection...')
+		conn = listener.accept()
+		logging.info('connection accepted from %s', listener.last_accepted)
 
-			cmd = msg['cmd']
-			if cmd == 'exec':
-				if not 'code' in msg:
-					send_protocol(conn, 'no code given', protocol)
+		protocol = None
+		while not exit_event.is_set():
+			msg = conn.recv()
+			msg_type = type(msg)
+			if msg_type == type(''):
+				if msg == 'protocol2':
+					logging.info('setting protocol = 2')
+					protocol = 2
+					send_protocol(conn, 'ok switching to protocol 2', protocol)
+					continue
+				elif msg == 'close':
+					send_protocol(conn, 'goodbye', protocol)
+					conn.close()
+					break
+			elif msg_type == type({}):
+				if not 'cmd' in msg:
+					send_protocol(conn, 'invalid cmd', protocol)
 					continue
 
-				ret = exec_user_code(msg['code'], envdir)
-				send_protocol(conn, ret, protocol)
-				continue
-			elif cmd == 'eval':
-				if not 'expr' in msg:
-					send_protocol(conn, 'no expr given', protocol)
+				cmd = msg['cmd']
+				if cmd == 'exec':
+					if not 'code' in msg:
+						send_protocol(conn, 'no code given', protocol)
+						continue
+
+					ret = exec_user_code(msg['code'], envdir)
+					send_protocol(conn, ret, protocol)
+					continue
+				elif cmd == 'eval':
+					if not 'expr' in msg:
+						send_protocol(conn, 'no expr given', protocol)
+						continue
+
+					ret = eval_expression(msg['expr'], envdir)
+					send_protocol(conn, ret, protocol)
+					continue
+				elif cmd == 'store':
+					if not 'name' in msg:
+						send_protocol(conn, 'no var name given', protocol)
+						continue
+					if not 'data' in msg:
+						send_protocol(conn, 'no var data given', protocol)
+						continue
+
+					data_store(msg['name'], msg['data'], envdir)
+					send_protocol(conn, repr(envdir[msg['name']]), protocol)
 					continue
 
-				ret = eval_expression(msg['expr'], envdir)
-				send_protocol(conn, ret, protocol)
-				continue
-			elif cmd == 'store':
-				if not 'name' in msg:
-					send_protocol(conn, 'no var name given', protocol)
-					continue
-				if not 'data' in msg:
-					send_protocol(conn, 'no var data given', protocol)
-					continue
+			logging.info('received: %s', repr(type(msg)))
+			logging.info(msg)
+			send_protocol(conn, 'thanks', protocol)
 
-				data_store(msg['name'], msg['data'], envdir)
-				send_protocol(conn, repr(envdir[msg['name']]), protocol)
-				continue
-
-		logging.info('received: %s', repr(type(msg)))
-		logging.info(msg)
-		send_protocol(conn, 'thanks', protocol)
-
-	listener.close()
-	logging.info("Thread %s: finishing", name)
+		listener.close()
+		logging.info("Thread %s: finishing", name)
 
 
 
@@ -187,12 +192,14 @@ def main():
 	test_thread.start()
 
 	while True:
-		source = input("> ")
-		if source == '!q':
+		expr = input("> ")
+		if expr == '!q':
 			exit_event.set()
 			test_thread.join()
 			break
-		exec_user_code(source, envdir)
+
+		ret = eval_expression(expr, envdir)
+		print(ret)
 	
 	print('user quit')
 
