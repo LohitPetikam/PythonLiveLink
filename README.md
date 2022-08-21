@@ -3,7 +3,7 @@ Live link between two Python instances. Designed for convenient interop between 
 
 For research we usually want to run specialised computational code on data created in 3D tools.
 However, it's hard or impractical to install modules like Numpy/SciPy/Tensorflow in python intepreters embedded into 3D tools.	 
-PythonLiveLink lets the user send the data created in these tools to be interactively sent to the server for processing, and have the results retrieved to update the digital content.
+PythonLiveLink lets the user interactively send the data created in these tools to the server for processing, and have the results retrieved to update the digital content.
 
 # Interactive Usage Example (Maya)
 1. Run ```python .\PythonLiveLink.py``` in a terminal. This terminal acts as the persistent server that can run system Python commands and scripts.
